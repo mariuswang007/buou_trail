@@ -1,0 +1,7 @@
+# 配置文件
+config.json
+
+# VS Code 配置目录
+.vscode/
+
+.idea/

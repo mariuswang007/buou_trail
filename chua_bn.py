@@ -1,3 +1,4 @@
+# 币安合约自动止盈止损  双向持仓版本
 # -*- coding: utf-8 -*-
 import ccxt
 import time
@@ -30,7 +31,8 @@ class MultiAssetTradingBot:
             'options': {
                 'defaultType': 'future',
             },
-            # 'proxies': {'http': 'http://127.0.0.1:10100', 'https': 'http://127.0.0.1:10100'},
+         
+            #'proxies': {'http': 'http://127.0.0.1:6152', 'https': 'http://127.0.0.1:6152'},
         })
 
         # 配置日志
@@ -96,11 +98,11 @@ class MultiAssetTradingBot:
             self.logger.error(f"Error fetching positions: {e}")
             return []
 
-    def close_position(self, symbol, amount, side):
+    def close_position(self, symbol, amount,positionSide):
         try:
-            order = self.exchange.create_order(symbol, 'market', side, amount, None, {'type': 'future'})
-            self.logger.info(f"Closed position for {symbol} with size {amount}, side: {side}")
-            self.send_feishu_notification(f"Closed position for {symbol} with size {amount}, side: {side}")
+            order = self.exchange.create_order(symbol,'MARKET','buy' if positionSide.lower()=='short' else 'sell', amount, None, {'type': 'future','positionSide':positionSide})
+            self.logger.info(f"Closed position for {symbol} with size {amount}, side: {positionSide}")
+            self.send_feishu_notification(f"Closed position for {symbol} with size {amount}, side: {positionSide}")
             # 清除检测过的仓位及相关数据
             self.detected_positions.discard(symbol)
             self.highest_profits.pop(symbol, None)  # 清除最高盈利值
@@ -118,7 +120,7 @@ class MultiAssetTradingBot:
             position_amt = float(position['info']['positionAmt'])  # 使用 positionAmt 来获取仓位数量
             entry_price = float(position['info']['entryPrice'])
             current_price = float(position['info']['markPrice'])
-            side = position['side']  # 获取仓位方向 ('long' 或 'short')
+            side = position['side'].lower()  # 获取仓位方向 ('long' 或 'short')
 
             if position_amt == 0:
                 continue
@@ -172,7 +174,7 @@ class MultiAssetTradingBot:
                 self.logger.info(f"回撤到{self.low_trail_stop_loss_pct:.2f}% 止盈")
                 if profit_pct <= self.low_trail_stop_loss_pct:
                     self.logger.info(f"{symbol} 触发低档保护止盈，当前盈亏回撤到: {profit_pct:.2f}%，执行平仓")
-                    self.close_position(symbol, abs(position_amt), 'sell' if side == 'long' else 'buy')
+                    self.close_position(symbol, abs(position_amt),side)
                     continue  # 一旦平仓，跳过后续逻辑
 
             elif current_tier == "第一档移动止盈":
@@ -181,7 +183,7 @@ class MultiAssetTradingBot:
                 if profit_pct <= trail_stop_loss:
                     self.logger.info(
                         f"{symbol} 达到利润回撤阈值，当前档位：第一档移动止盈，最高盈亏: {highest_profit:.2f}%，当前盈亏: {profit_pct:.2f}%，执行平仓")
-                    self.close_position(symbol, abs(position_amt), 'sell' if side == 'long' else 'buy')
+                    self.close_position(symbol, abs(position_amt),side)
                     continue  # 一旦平仓，跳过后续逻辑
 
             elif current_tier == "第二档移动止盈":
@@ -190,13 +192,13 @@ class MultiAssetTradingBot:
                 if profit_pct <= trail_stop_loss:
                     self.logger.info(
                         f"{symbol} 达到利润回撤阈值，当前档位：第二档移动止盈，最高盈亏: {highest_profit:.2f}%，当前盈亏: {profit_pct:.2f}%，执行平仓")
-                    self.close_position(symbol, abs(position_amt), 'sell' if side == 'long' else 'buy')
+                    self.close_position(symbol, abs(position_amt),side)
                     continue  # 一旦平仓，跳过后续逻辑
 
             # 止损逻辑
             if profit_pct <= -self.stop_loss_pct:
                 self.logger.info(f"{symbol} 触发止损，当前盈亏: {profit_pct:.2f}%，执行平仓")
-                self.close_position(symbol, abs(position_amt), 'sell' if side == 'long' else 'buy')
+                self.close_position(symbol, abs(position_amt),side)
 
 if __name__ == '__main__':
     with open('config.json', 'r') as f:
@@ -205,6 +207,5 @@ if __name__ == '__main__':
     platform_config = config_data['binance']
     feishu_webhook_url = config_data['feishu_webhook']
     monitor_interval = config_data.get("monitor_interval", 4)  # 默认值为4秒
-
     bot = MultiAssetTradingBot(platform_config, feishu_webhook=feishu_webhook_url, monitor_interval=monitor_interval)
     bot.schedule_task()
